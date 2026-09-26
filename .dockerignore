@@ -1,0 +1,6 @@
+node_modules
+dist
+test
+.pglite-data*
+k8s
+*.md

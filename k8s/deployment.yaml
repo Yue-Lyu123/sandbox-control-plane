@@ -1,0 +1,62 @@
+# 沙箱控制面 Deployment。集群内走 ServiceAccount（k8s.ts loadInClusterK8sConfig），
+# 其余配置来自 Secret sandbox-control-plane-env（见 secret.example.yaml）。
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sandbox-control-plane
+  labels:
+    app.kubernetes.io/name: sandbox-control-plane
+spec:
+  replicas: 1 # observer / reaper / pool 是进程内单例，多副本会重复采集、重复回收——扩副本前先做选主
+  strategy:
+    type: Recreate # 同上：滚动更新会有两份 observer 并存的窗口
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sandbox-control-plane
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sandbox-control-plane
+    spec:
+      serviceAccountName: sandbox-control-plane
+      automountServiceAccountToken: true
+      containers:
+        - name: sandbox-control-plane
+          image: REPLACE_ME/sandbox-control-plane:REPLACE_ME
+          ports:
+            - containerPort: 8080
+              name: http
+          env:
+            - name: PORT
+              value: "8080"
+          envFrom:
+            - secretRef:
+                name: sandbox-control-plane-env
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 10
+            periodSeconds: 20
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              cpu: "1"
+              memory: 512Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+      terminationGracePeriodSeconds: 15

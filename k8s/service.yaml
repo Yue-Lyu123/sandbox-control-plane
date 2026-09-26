@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-control-plane
+  labels:
+    app.kubernetes.io/name: sandbox-control-plane
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: sandbox-control-plane
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
