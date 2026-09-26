@@ -3,8 +3,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { recordSandboxActivity } from "../src/activity.js";
-import { sandboxPodName, SandboxProvisionError, type SandboxControlPlane } from "../src/control-plane.js";
+import { heldUntilFor, recordSandboxActivity } from "../src/activity.js";
+import { claimPoolPod, forgetPoolPod, registerPoolPod } from "../src/pool.js";
+import { SANDBOX_ROLE_LABEL, sandboxPodName, SandboxProvisionError, type SandboxControlPlane } from "../src/control-plane.js";
 import { statusForError } from "../src/errors.js";
 import { appendSandboxPodLogLines, insertSandboxPodEvent } from "../src/observer-store.js";
 import { createControlPlaneServer } from "../src/server.js";
@@ -129,7 +130,8 @@ describe("execution endpoints — 200 shapes", () => {
     });
     expect(res.status).toBe(200);
     const body = await json(res);
-    expect(Object.keys(body).sort()).toEqual(["error", "exit_code", "output", "success"]);
+    expect(Object.keys(body).sort()).toEqual(["error", "exit_code", "output", "pod_name", "success"]);
+    expect(body.pod_name).toBe(sandboxPodName(tenant, "s1"));
     expect(body.exit_code).toBe(0);
     expect(body.success).toBe(true);
     expect(String(body.output)).toContain("hello");
@@ -181,6 +183,28 @@ describe("execution endpoints — 200 shapes", () => {
     expect(body.held_until).toMatch(ISO_RE);
     expect(body.ttl_s).toBe(60);
     expect(body.expires_at).toBeNull();
+  });
+
+  it("热池会话：execute 回显认领的池子 pod 名，hold 也记在它名下（与 acquire 同一个名字）", async () => {
+    const ns = `srv-pooled-${randomUUID().slice(0, 8)}`;
+    configureK8s(ns);
+    const tenant = `t-${randomUUID()}`;
+    const pooled = `sbx-pool-${randomUUID().slice(0, 8)}`;
+    k8sServer.seedPod({ namespace: ns, name: pooled, labels: { app: "community-sandbox", [SANDBOX_ROLE_LABEL]: "session" } });
+    await registerPoolPod(pooled);
+    expect(await claimPoolPod(tenant, "s1", [pooled])).toBe(pooled);
+    try {
+      const exec = await cp.post("/internal/sandboxes/execute", { tenant, session_id: "s1", command: "true" });
+      expect(exec.status).toBe(200);
+      expect((await json(exec)).pod_name).toBe(pooled);
+
+      const hold = await cp.post("/internal/sandboxes/hold", { tenant, session_id: "s1", ttl_ms: 60_000, reason: null });
+      expect(hold.status).toBe(200);
+      expect((await heldUntilFor([pooled])).has(pooled)).toBe(true);
+      expect((await heldUntilFor([sandboxPodName(tenant, "s1")])).size).toBe(0);
+    } finally {
+      await forgetPoolPod(pooled);
+    }
   });
 
   it("release -> {released: boolean}", async () => {

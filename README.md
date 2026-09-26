@@ -52,7 +52,7 @@ JSON、蛇形。
 | 方法 | 路径 | 请求 | 200 响应 |
 |---|---|---|---|
 | POST | `/internal/sandboxes/acquire` | `{tenant, session_id}` | `{pod_name, base_url, via, expires_at}` |
-| POST | `/internal/sandboxes/execute` | `{tenant, session_id, command, timeout_ms?}` | `{exit_code, output, success, error}` |
+| POST | `/internal/sandboxes/execute` | `{tenant, session_id, command, timeout_ms?}` | `{exit_code, output, success, error, pod_name}` |
 | POST | `/internal/sandboxes/mount-files` | `{tenant, session_id, dest_root?, files:[{path, content_base64}]}` | `{mounted}` |
 | POST | `/internal/sandboxes/hold` | `{tenant, session_id, ttl_ms, reason}` | `{held_until, ttl_s, expires_at}` |
 | POST | `/internal/sandboxes/release` | `{tenant, session_id}` | `{released}` |

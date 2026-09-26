@@ -342,6 +342,9 @@ describe("⑤ 控制面：命中池子就跳过整个建 pod + 等就绪", () =>
 
     const r = await cp.execute("acme", session, "echo hi");
     expect(r.exitCode).toBe(0);
+    // 回显的是实际跑在的池子 pod，不是哈希名——acquire 与 execute 回的必须是同一个名字
+    expect(r.podName).toBe(pooled);
+    expect(await cp.podNameFor("acme", session)).toBe(pooled);
 
     await cp.release("acme", session);
 

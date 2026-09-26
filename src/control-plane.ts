@@ -347,8 +347,12 @@ export class SandboxControlPlane {
    * 表读不到时**退回哈希而不是抛**：DB 抖一下不该让一个本来能跑的会话挂掉。
    * 代价是那一刻可能找错 pod（认领过却查不到），但那会得到一个诚实的
    * `SandboxNotFoundError`(410)，SAR 的语义正是"重新 acquire"，能自愈。
+   *
+   * 对外公开：凡是要按 pod 名落库或回显给调用方的地方（hold、execute 回显）都得走这里，
+   * 不能自己算 `sandboxPodName`——热池会话的物理 pod 是 `sbx-pool-*`，哈希名只是会话键，
+   * 按哈希名记的 hold 收割器永远看不到（2026-09-26 SAR 冒烟发现 acquire 与 execute 回显不一致时顺带查出）。
    */
-  private async podNameFor(tenant: string, sessionId: string): Promise<string> {
+  async podNameFor(tenant: string, sessionId: string): Promise<string> {
     if (this.pool) {
       try {
         const claimed = await this.pool.claimedPodName(tenant, sessionId);
@@ -608,7 +612,7 @@ export class SandboxControlPlane {
     sessionId: string,
     command: string,
     opts: { timeoutMs?: number } = {},
-  ): Promise<ExecResult> {
+  ): Promise<ExecResult & { podName: string }> {
     const name = await this.podNameFor(tenant, sessionId);
     const handle = await this.resolve(name);
 
@@ -617,7 +621,8 @@ export class SandboxControlPlane {
     );
 
     await this.recordActivity(name, tenant, sessionId);
-    return result;
+    // 回显实际跑在哪个 pod 上（与 acquire 返回的同一个名字），调用方拿它查日志。
+    return { ...result, podName: name };
   }
 
   async mountSkills(

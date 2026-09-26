@@ -1,7 +1,7 @@
 import http from "node:http";
 import { timingSafeEqual } from "node:crypto";
 import { recordSandboxHold, SANDBOX_HOLD_DEFAULT_MS, SANDBOX_HOLD_MAX_MS } from "./activity.js";
-import { sandboxPodName, type SandboxControlPlane } from "./control-plane.js";
+import { type SandboxControlPlane } from "./control-plane.js";
 import { errorBody, SandboxNotConfiguredError, statusForError } from "./errors.js";
 import { sandboxControlPlaneFromEnv, sandboxReaperFromEnv } from "./from-env.js";
 import { loadControlPlaneHealth, type ControlPlaneHealthLoad } from "./load-control-plane-health.js";
@@ -164,7 +164,7 @@ export function createControlPlaneServer(deps: ServerDeps): http.Server {
           ? body.timeout_ms
           : undefined;
       const r = await cp.execute(tenant, sessionId, body.command, { timeoutMs });
-      return { exit_code: r.exitCode, output: r.output, success: r.success, error: r.error };
+      return { exit_code: r.exitCode, output: r.output, success: r.success, error: r.error, pod_name: r.podName };
     },
 
     "POST /internal/sandboxes/mount-files": async ({ req, requireCp }) => {
@@ -197,9 +197,9 @@ export function createControlPlaneServer(deps: ServerDeps): http.Server {
           ? body.ttl_ms
           : SANDBOX_HOLD_DEFAULT_MS;
       const reason = typeof body.reason === "string" ? body.reason : null;
-      // 与主服务拆分前 `inProcessSandboxClient().hold` 逐行同义：按哈希 pod 名记 hold，
+      // 按物理 pod 名记 hold（热池会话的 pod 叫 sbx-pool-*，按哈希名记的 hold 收割器看不到）；
       // expires_at 取不到就 null（hold 本身已落库，不因为读 pod 失败而报错）。
-      const podName = sandboxPodName(tenant, sessionId);
+      const podName = await cp.podNameFor(tenant, sessionId);
       const heldUntil = await recordSandboxHold(podName, tenant, sessionId, ttlMs, reason);
       let expiresAt: string | null = null;
       try {
