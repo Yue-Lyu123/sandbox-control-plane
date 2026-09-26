@@ -239,7 +239,7 @@ describe("execution endpoints — error bodies carry the class name", () => {
     const res = await cp.post("/internal/sandboxes/execute", { tenant, session_id: "ghost", command: "true" });
     expect(res.status).toBe(410);
     expect(await res.json()).toEqual({
-      detail: `sandbox not found: ${sandboxPodName(tenant, "ghost")}`,
+      detail: `sandbox not found: ${sandboxPodName(tenant, "ghost")} (session_id=ghost, tenant=${tenant})`,
       error: "SandboxNotFoundError",
     });
   });

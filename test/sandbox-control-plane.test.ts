@@ -250,7 +250,7 @@ describe("Task #16 BUG 1a: Terminating pods (deletionTimestamp set) count as NOT
 
       const err: unknown = await ctx.plane.execute(tenant, session, "echo hi").catch((e) => e);
       expect(err).toBeInstanceOf(SandboxNotFoundError);
-      expect((err as Error).message).toBe(`sandbox not found: ${name}`);
+      expect((err as Error).message).toBe(`sandbox not found: ${name} (session_id=${session}, tenant=${tenant})`);
     } finally {
       await teardown(ctx);
     }
@@ -398,7 +398,7 @@ describe("SandboxControlPlane error paths", () => {
       expect(err).toBeInstanceOf(SandboxNotFoundError);
       expect(err).toBeInstanceOf(SandboxProvisionError); 
       expect((err as SandboxNotFoundError).podName).toBe(name);
-      expect((err as Error).message).toBe(`sandbox not found: ${name}`);
+      expect((err as Error).message).toBe(`sandbox not found: ${name} (session_id=sess-never-acquired, tenant=acme)`);
     } finally {
       await teardown(ctx);
     }

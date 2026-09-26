@@ -268,8 +268,17 @@ export class SandboxProvisionError extends Error {
 
 export class SandboxNotFoundError extends SandboxProvisionError {
   readonly podName: string;
-  constructor(podName: string) {
-    super(`sandbox not found: ${podName}`);
+  /**
+   * 带会话上下文时文案附上 session_id/tenant：release 之后池子认领已忘、pod 名退回
+   * (tenant, session) 哈希，那是一个从没存在过的 pod 名，单独报它排障时对不上 acquire
+   * 回的 sbx-pool-*（SAR 2026-09-26 冒烟指出）。前缀 `sandbox not found: ` 不变。
+   */
+  constructor(podName: string, session?: { tenant: string; sessionId: string }) {
+    super(
+      session === undefined
+        ? `sandbox not found: ${podName}`
+        : `sandbox not found: ${podName} (session_id=${session.sessionId}, tenant=${session.tenant})`,
+    );
     this.name = "SandboxNotFoundError";
     this.podName = podName;
   }
@@ -466,7 +475,7 @@ export class SandboxControlPlane {
     if (wait.outcome !== "ready") {
       throw new SandboxProvisionError(`pod ${name} not ready within ${readyTimeoutMs}ms`);
     }
-    const handle = await this.resolve(name);
+    const handle = await this.resolve(name, { tenant, sessionId });
     await this.recordActivity(name, tenant, sessionId);
     return handle;
   }
@@ -487,7 +496,7 @@ export class SandboxControlPlane {
         await this.markPodClaimed(name, sessionId);
       }
 
-      const handle = await this.resolve(name);
+      const handle = await this.resolve(name, { tenant, sessionId });
       await this.recordActivity(name, tenant, sessionId);
       return handle;
     } catch {
@@ -565,10 +574,10 @@ export class SandboxControlPlane {
     );
   }
 
-  private async resolve(name: string): Promise<SandboxHandle> {
+  private async resolve(name: string, session?: { tenant: string; sessionId: string }): Promise<SandboxHandle> {
     const pod = await this.k8s.getPod(this.ns, name);
     if (pod === null || pod.metadata?.deletionTimestamp) {
-      throw new SandboxNotFoundError(name);
+      throw new SandboxNotFoundError(name, session);
     }
 
     const startMs = lifetimeStartMs(pod);
@@ -614,7 +623,7 @@ export class SandboxControlPlane {
     opts: { timeoutMs?: number } = {},
   ): Promise<ExecResult & { podName: string }> {
     const name = await this.podNameFor(tenant, sessionId);
-    const handle = await this.resolve(name);
+    const handle = await this.resolve(name, { tenant, sessionId });
 
     const result = await this.withActivityHeartbeat(name, tenant, sessionId, () =>
       this.translateTransportErrors(name, () => handle.aio.execute(command, { timeoutMs: opts.timeoutMs })),
@@ -633,7 +642,7 @@ export class SandboxControlPlane {
   ): Promise<number> {
     const destRoot = (opts.destRoot ?? DEFAULT_SKILLS_DEST_ROOT).replace(/\/$/, "");
     const name = await this.podNameFor(tenant, sessionId);
-    const handle = await this.resolve(name);
+    const handle = await this.resolve(name, { tenant, sessionId });
     let n = 0;
     for (const [rel, content] of files) {
       const path = rel.startsWith("/") ? rel : `${destRoot}/${rel.replace(/^\/+/, "")}`;
