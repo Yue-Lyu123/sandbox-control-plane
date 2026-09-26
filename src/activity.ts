@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS sandbox_activity (
 -- 还是有人声明了在等人批。
 ALTER TABLE sandbox_activity ADD COLUMN IF NOT EXISTS held_until  timestamptz;
 ALTER TABLE sandbox_activity ADD COLUMN IF NOT EXISTS hold_reason text;
+-- 运行日志页按 session 找 pod（2026-09-26）。
+CREATE INDEX IF NOT EXISTS sandbox_activity_session_idx ON sandbox_activity (session_id);
 `;
 
 const sandboxActivitySchema = schemaEnsurer((pool: Pool) => pool.query(SANDBOX_ACTIVITY_SCHEMA_SQL));

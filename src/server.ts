@@ -252,10 +252,10 @@ export function createControlPlaneServer(deps: ServerDeps): http.Server {
       // 默认值与主服务 run-logs.ts 一致（RUN_LOGS_DEFAULT_LIMIT=500、MARKER_LIMIT=20）。
       const lines = clampLimit(url.searchParams.get("lines"), 500, 2000);
       const markers = clampLimit(url.searchParams.get("markers"), 20, 1000);
-      const [pods, lineRows, markerRows] = await Promise.all([
-        readSessionPodNames(tenant, sessionId),
-        readSessionPodLogs(tenant, sessionId, lines),
-        readSessionLogMarkers(tenant, sessionId, markers),
+      const pods = await readSessionPodNames(tenant, sessionId);
+      const [lineRows, markerRows] = await Promise.all([
+        readSessionPodLogs(tenant, sessionId, lines, pods),
+        readSessionLogMarkers(tenant, sessionId, markers, pods),
       ]);
       return { pods, lines: lineRows.map(logRowWire), markers: markerRows.map(eventRowWire) };
     },

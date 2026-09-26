@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS sandbox_pod_meta (
 );
 ALTER TABLE sandbox_pod_meta ADD COLUMN IF NOT EXISTS username text;
 ALTER TABLE sandbox_pod_meta ADD COLUMN IF NOT EXISTS agent_id text;
+-- 运行日志页按 session 找 pod（2026-09-26）；表小，启动时建索引是瞬时的。
+CREATE INDEX IF NOT EXISTS sandbox_pod_meta_session_idx ON sandbox_pod_meta (session_id);
 `;
 
 const sandboxObserveSchema = schemaEnsurer((pool: Pool) => pool.query(SANDBOX_OBSERVE_SCHEMA_SQL));
@@ -153,8 +155,6 @@ const CORRELATED_COLUMNS = `
   COALESCE(m.tenant_id,  a.tenant_id)  AS tenant_id,
   COALESCE(m.session_id, a.session_id) AS session_id`;
 
-const TENANT_GATE = `(COALESCE(m.tenant_id, a.tenant_id) IS NULL
-                      OR COALESCE(m.tenant_id, a.tenant_id) = $2)`;
 
 export async function readSandboxPodLogs(podName: string, limit: number): Promise<SandboxPodLogRow[]> {
   const pool = getPool();
@@ -194,19 +194,24 @@ export async function readSessionPodLogs(
   tenantId: string,
   sessionId: string,
   limit: number,
+  pods?: string[],
 ): Promise<SandboxPodLogRow[]> {
   const pool = getPool();
   await ensureSessionReadSchemas(pool);
+  // 2026-09-26：原来按 COALESCE(m.session_id, a.session_id) 过滤，谓词跨两张 join 表，索引用不上，
+  // 每次打开运行日志页都全表扫 sandbox_pod_logs（生产 7000 万行）。现在先按 session 取 pod 名
+  // （meta/activity 各有 session_id 索引），再走 (pod_name, id) 索引反向扫。租户门在取 pod 那一步已经过了。
+  const podNames = pods ?? (await readSessionPodNames(tenantId, sessionId));
+  if (podNames.length === 0) return [];
   const { rows } = await pool.query<SandboxPodLogRow>(
     `SELECT * FROM (
        SELECT x.id::text, x.pod_name, x.line, x.observed_at, ${CORRELATED_COLUMNS}
        FROM sandbox_pod_logs x ${CORRELATION_JOIN}
-       WHERE COALESCE(m.session_id, a.session_id) = $1
-         AND ${TENANT_GATE}
+       WHERE x.pod_name = ANY($1::text[])
        ORDER BY x.id DESC
-       LIMIT $3
+       LIMIT $2
      ) t ORDER BY t.id::bigint ASC`,
-    [sessionId, tenantId, limit],
+    [podNames, limit],
   );
   return rows;
 }
@@ -215,19 +220,21 @@ export async function readSessionLogMarkers(
   tenantId: string,
   sessionId: string,
   limit: number,
+  pods?: string[],
 ): Promise<SandboxPodEventRow[]> {
   const pool = getPool();
   await ensureSessionReadSchemas(pool);
+  const podNames = pods ?? (await readSessionPodNames(tenantId, sessionId));
+  if (podNames.length === 0) return [];
   const { rows } = await pool.query<SandboxPodEventRow>(
     `SELECT x.id::text, x.pod_name, x.source, x.type, x.reason, x.message, x.payload, x.observed_at,
             ${CORRELATED_COLUMNS}
      FROM sandbox_pod_events x ${CORRELATION_JOIN}
-     WHERE COALESCE(m.session_id, a.session_id) = $1
-       AND ${TENANT_GATE}
-       AND x.type = ANY($3::text[])
+     WHERE x.pod_name = ANY($1::text[])
+       AND x.type = ANY($2::text[])
      ORDER BY x.id DESC
-     LIMIT $4`,
-    [sessionId, tenantId, LOG_MARKER_EVENT_TYPES, limit],
+     LIMIT $3`,
+    [podNames, LOG_MARKER_EVENT_TYPES, limit],
   );
   return rows;
 }
