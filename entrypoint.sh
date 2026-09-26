@@ -55,6 +55,10 @@ load_env() {
   fi
   export PORT="${PORT:-8080}"
   export NODE_ENV="${NODE_ENV:-production}"
+  # 集群 CA 一般是个文件（与主仓 deploy/cluster-ca.pem 同一份）；k8s.ts 只认 SANDBOX_K8S_CA 的 PEM 串
+  if [[ -z "${SANDBOX_K8S_CA:-}" && -n "${SANDBOX_K8S_CA_FILE:-}" && -f "${SANDBOX_K8S_CA_FILE}" ]]; then
+    SANDBOX_K8S_CA="$(cat "${SANDBOX_K8S_CA_FILE}")"; export SANDBOX_K8S_CA
+  fi
 }
 
 require_env() {
