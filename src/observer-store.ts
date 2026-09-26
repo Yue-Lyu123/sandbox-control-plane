@@ -12,6 +12,9 @@ CREATE TABLE IF NOT EXISTS sandbox_pod_logs (
     observed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS sandbox_pod_logs_pod_idx ON sandbox_pod_logs (pod_name, id);
+-- 保留期清理按 observed_at 削（2026-09-26）。生产上这条索引是脚本 CONCURRENTLY 先建好的
+-- （scripts/purge-sandbox-logs-2026-09-26.ts），这里只是新库建表时补齐；已存在即 no-op。
+CREATE INDEX IF NOT EXISTS sandbox_pod_logs_observed_at_idx ON sandbox_pod_logs (observed_at);
 
 CREATE TABLE IF NOT EXISTS sandbox_pod_events (
     id          bigserial PRIMARY KEY,
@@ -25,6 +28,7 @@ CREATE TABLE IF NOT EXISTS sandbox_pod_events (
     observed_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS sandbox_pod_events_pod_idx ON sandbox_pod_events (pod_name, id);
+CREATE INDEX IF NOT EXISTS sandbox_pod_events_observed_at_idx ON sandbox_pod_events (observed_at);
 CREATE UNIQUE INDEX IF NOT EXISTS sandbox_pod_events_dedup_idx
     ON sandbox_pod_events (dedup_key) WHERE dedup_key IS NOT NULL;
 

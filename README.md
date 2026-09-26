@@ -80,3 +80,9 @@ JSON、蛇形。
 | JSON 解析失败 | 400 | `{detail:"invalid json"}` |
 | 缺 `tenant` / `session_id` / `command` / `files` | 400 | `{detail:"missing <字段>"}` |
 | 未知路径 | 404 | `{detail:"not found"}` |
+
+## 在 devbox 上跑（发版走 devbox 快照）
+
+启动命令都在 `entrypoint.sh`：平台启动命令填 `/bin/bash -c "/home/devbox/project/entrypoint.sh prod"`；
+人用 `./entrypoint.sh restart`（构建 → 停 → 脱离终端拉起 → 等 `/healthz`），`status` / `stop` / `run <脚本>` / `dev` 见脚本头部。
+运行时配置放 gitignored 的 `deploy/control-plane.env`（进程环境优先于它）。

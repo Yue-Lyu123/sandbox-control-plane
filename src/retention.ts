@@ -23,6 +23,9 @@ export const PURGE_TARGETS = [
   { table: "sandbox_pod_events", column: "observed_at" },
 ] as const;
 
+export const PURGE_BATCH_ROWS = 50_000;
+export const PURGE_BATCH_PAUSE_MS = 200;
+
 let lastReport: RetentionReport | null = null;
 
 function positiveNumberFromEnv(name: string): number | null {
@@ -53,13 +56,24 @@ export async function purgeExpiredObservabilityRows(
     for (const target of PURGE_TARGETS) {
       try {
 
-        const { rowCount } = await pool.query(
-          `DELETE FROM ${target.table}
-           WHERE ${target.column} < now() - ($1::text || ' days')::interval`,
-          [String(days)],
-        );
-        report.deleted[target.table] = rowCount ?? 0;
-        report.total += rowCount ?? 0;
+        // 分批删（2026-09-26）：原来一条 DELETE 全表扫，生产 7000 万行时每 6 小时读 20 亿元组；
+        // 现在走 observed_at 索引每批 5 万行、批间歇 200ms，每批自成事务，随时能停。
+        let deleted = 0;
+        for (;;) {
+          const { rowCount } = await pool.query(
+            `DELETE FROM ${target.table} WHERE ctid = ANY(ARRAY(
+               SELECT ctid FROM ${target.table}
+                WHERE ${target.column} < now() - ($1::text || ' days')::interval
+                LIMIT ${PURGE_BATCH_ROWS}))`,
+            [String(days)],
+          );
+          const n = rowCount ?? 0;
+          deleted += n;
+          if (n < PURGE_BATCH_ROWS) break;
+          await new Promise((r) => setTimeout(r, PURGE_BATCH_PAUSE_MS));
+        }
+        report.deleted[target.table] = deleted;
+        report.total += deleted;
       } catch (err) {
         report.deleted[target.table] = 0;
         report.errors.push({
